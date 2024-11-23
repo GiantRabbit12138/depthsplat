@@ -29,6 +29,128 @@
 <strong>DepthSplat enables cross-task interactions between Gaussian splatting and depth estimation.</strong>
 </p>
 
+## Directory Structure
+
+```bash
+depthsplat
+├── DATASETS.md
+├── LICENSE
+├── MODEL_ZOO.md
+├── README.md
+├── assets
+│   ├── dl3dv_start_0_distance_100_ctx_12v_tgt_16v_video.json
+│   ├── dl3dv_start_0_distance_10_ctx_2v_tgt_4v.json
+│   ├── dl3dv_start_0_distance_50_ctx_2v_tgt_4v_video_0-50.json
+│   ├── dl3dv_start_0_distance_50_ctx_4v_tgt_4v_video_0-50.json
+│   ├── dl3dv_start_0_distance_50_ctx_6v_tgt_8v.json
+│   ├── dl3dv_start_0_distance_50_ctx_6v_tgt_8v_video_0-50.json
+│   ├── evaluation_index_re10k.json
+│   └── evaluation_index_re10k_video.json
+├── config
+│   ├── dataset
+│   │   ├── dl3dv.yaml
+│   │   ├── re10k.yaml
+│   │   ├── view_sampler
+│   │   └── view_sampler_dataset_specific_config
+│   ├── experiment
+│   │   ├── dl3dv.yaml
+│   │   └── re10k.yaml
+│   ├── loss
+│   │   ├── lpips.yaml
+│   │   └── mse.yaml
+│   ├── main.yaml
+│   └── model
+│       ├── decoder
+│       └── encoder
+├── datasets
+│   └── re10k -> /root/autodl-tmp/re10k
+├── download_dataset.py
+├── pretrained
+│   ├── depthsplat-gs-base-re10k-256x256-044fdb17.pth -> /root/autodl-tmp/models/depthsplat-gs-base-re10k-256x256-044fdb17.pth
+│   ├── depthsplat-gs-large-re10k-256x256-288d9b26.pth -> /root/autodl-tmp/models/depthsplat-gs-large-re10k-256x256-288d9b26.pth
+│   └── depthsplat-gs-small-re10k-256x256-49b2d15c.pth -> /root/autodl-tmp/models/depthsplat-gs-small-re10k-256x256-49b2d15c.pth
+├── requirements.txt
+├── scripts
+│   ├── dl3dv_256x448_depthsplat_base.sh
+│   ├── inference_depth_base.sh
+│   ├── inference_depth_large.sh
+│   ├── inference_depth_small.sh
+│   ├── re10k_256x256_depthsplat_base.sh
+│   ├── re10k_256x256_depthsplat_large.sh
+│   └── re10k_256x256_depthsplat_small.sh
+└── src
+    ├── __pycache__
+    │   ├── config.cpython-310.opt-jaxtyping983a4111806314cc973c4ea00fb072bf6.pyc
+    │   ├── global_cfg.cpython-310.opt-jaxtyping983a4111806314cc973c4ea00fb072bf6.pyc
+    │   └── main.cpython-310.pyc
+    ├── config.py
+    ├── dataset
+    │   ├── __init__.py
+    │   ├── __pycache__
+    │   ├── data_module.py
+    │   ├── dataset.py
+    │   ├── dataset_dl3dv.py
+    │   ├── dataset_re10k.py
+    │   ├── shims
+    │   ├── types.py
+    │   ├── validation_wrapper.py
+    │   └── view_sampler
+    ├── evaluation
+    │   ├── __pycache__
+    │   ├── evaluation_cfg.py
+    │   ├── evaluation_index_generator.py
+    │   ├── metric_computer.py
+    │   └── metrics.py
+    ├── geometry
+    │   ├── __pycache__
+    │   ├── epipolar_lines.py
+    │   └── projection.py
+    ├── global_cfg.py
+    ├── loss
+    │   ├── __init__.py
+    │   ├── __pycache__
+    │   ├── loss.py
+    │   ├── loss_lpips.py
+    │   └── loss_mse.py
+    ├── main.py
+    ├── misc
+    │   ├── LocalLogger.py
+    │   ├── __pycache__
+    │   ├── benchmarker.py
+    │   ├── collation.py
+    │   ├── discrete_probability_distribution.py
+    │   ├── heterogeneous_pairings.py
+    │   ├── image_io.py
+    │   ├── nn_module_tools.py
+    │   ├── render_utils.py
+    │   ├── resume_ckpt.py
+    │   ├── sh_rotation.py
+    │   ├── stablize_camera.py
+    │   ├── step_tracker.py
+    │   └── wandb_tools.py
+    ├── model
+    │   ├── __pycache__
+    │   ├── decoder
+    │   ├── encoder
+    │   ├── model_wrapper.py
+    │   ├── ply_export.py
+    │   └── types.py
+    ├── scripts
+    │   ├── convert_dl3dv_test.py
+    │   ├── convert_dl3dv_train.py
+    │   └── generate_dl3dv_index.py
+    └── visualization
+        ├── __pycache__
+        ├── annotation.py
+        ├── camera_trajectory
+        ├── color_map.py
+        ├── colors.py
+        ├── drawing
+        ├── layout.py
+        ├── validation_in_3d.py
+        └── vis_depth.py
+```
+
 
 
 ## Installation
