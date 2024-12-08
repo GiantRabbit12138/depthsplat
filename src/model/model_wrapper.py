@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Protocol, runtime_checkable
 
-import moviepy.editor as mpy
+# import moviepy.editor as mpy
+from moviepy import *
 import torch
 import wandb
 from einops import pack, rearrange, repeat, einsum
@@ -1060,7 +1061,8 @@ class ModelWrapper(LightningModule):
             assert isinstance(self.logger, LocalLogger)
             for key, value in visualizations.items():
                 tensor = value._prepare_video(value.data)
-                clip = mpy.ImageSequenceClip(list(tensor), fps=value._fps)
+                # clip = mpy.ImageSequenceClip(list(tensor), fps=value._fps)
+                clip = ImageSequenceClip(list(tensor), fps=value._fps)
                 dir = LOG_PATH / key
                 dir.mkdir(exist_ok=True, parents=True)
                 clip.write_videofile(
