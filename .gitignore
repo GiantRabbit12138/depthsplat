@@ -164,3 +164,9 @@ cython_debug/
 datasets/
 
 pretrained/
+
+/checkpoints/
+
+/wandb/
+
+/outputs/
