@@ -84,6 +84,7 @@ def train(cfg_dict: DictConfig):
     # Set up logging with wandb.
     callbacks = []
     if cfg_dict.wandb.mode != "disabled":
+        # wandb.init(project=cfg_dict.wandb.project, entity='giantrabbit076-ecnu')
         wandb_extra_kwargs = {}
         if cfg_dict.wandb.id is not None:
             wandb_extra_kwargs.update({'id': cfg_dict.wandb.id,
