@@ -109,6 +109,8 @@ def apply_crop_shim_to_views(views: AnyViews, shape: tuple[int, int]) -> AnyView
     images, intrinsics = rescale_and_crop(
         views["image"], views["intrinsics"], shape, depths=None
     )
+    # # debug
+    # print(f"[apply_crop_shim_to_views] images.shape: {images.shape}")
     return {
         **views,
         "image": images,

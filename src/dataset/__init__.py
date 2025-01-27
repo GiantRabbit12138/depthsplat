@@ -22,6 +22,14 @@ def get_dataset(
     stage: Stage,
     step_tracker: StepTracker | None,
 ) -> Dataset:
+    """
+    根据输入的配置文件cfg 阶段stage等其它参数 获取view_sampler
+    再根据cfg.name从DATASETS字典中获取对应的数据集类Datasetxxx(cfg, stage, view_sampler)
+    最后返回构造出的Datasetxxx对象
+    """
+    # debug
+    # print(f"cfg.view_sampler: {cfg.view_sampler}")
+    
     view_sampler = get_view_sampler(
         cfg.view_sampler,
         stage,

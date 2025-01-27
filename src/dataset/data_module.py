@@ -88,8 +88,12 @@ class DataModule(LightningDataModule):
         return generator
 
     def train_dataloader(self):
+        # 获取数据集对象
         dataset = get_dataset(self.dataset_cfg, "train", self.step_tracker)
+        # 这里调用者没有传入新的dataset_shim 所以默认使用__init__中的dataset_shim 即不对数据集做任何修改
         dataset = self.dataset_shim(dataset, "train")
+        # 使用pytorch的DataLoader
+        # 管理和加载数据集。它封装了数据集的迭代过程，使得数据可以批量（batch）地提供给模型进行训练
         return DataLoader(
             dataset,
             self.data_loader_cfg.train.batch_size,
