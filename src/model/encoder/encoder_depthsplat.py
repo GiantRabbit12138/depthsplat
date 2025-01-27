@@ -21,6 +21,13 @@ from .unimatch.mv_unimatch import MultiViewUniMatch, set_num_views
 from .unimatch.ldm_unet.unet import UNetModel
 from .unimatch.feature_upsampler import ResizeConvFeatureUpsampler
 
+# unet3d
+from .unimatch.unet3d.model import get_model
+
+from colorama import Fore
+def cyan(text: str) -> str:
+    return f"{Fore.CYAN}{text}{Fore.RESET}"
+
 
 @dataclass
 class OpacityMappingCfg:
@@ -84,6 +91,7 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
     def __init__(self, cfg: EncoderDepthSplatCfg) -> None:
         super().__init__(cfg)
 
+        # 深度估计的对象
         self.depth_predictor = MultiViewUniMatch(
             num_scales=cfg.num_scales,
             upsample_factor=cfg.upsample_factor,
@@ -103,7 +111,7 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
                                                             vit_type=self.cfg.monodepth_vit_type,
                                                             )
         feature_upsampler_channels = self.cfg.feature_upsampler_channels
-        
+
         # gaussians adapter
         self.gaussian_adapter = GaussianAdapter(cfg.gaussian_adapter)
 
@@ -143,6 +151,7 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
 
         modules.append(nn.Conv2d(channels, channels, 3, 1, 1))
 
+        # gaussian_regressor中是unet网络结构
         self.gaussian_regressor = nn.Sequential(*modules)
 
         # predict gaussian parameters: scale, q, sh
@@ -180,6 +189,7 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
         nn.init.zeros_(self.gaussian_head[-1].weight[3:6])
         nn.init.zeros_(self.gaussian_head[-1].bias[3:6])
 
+    # 深度估计可能是在这进行的
     def forward(
         self,
         context: dict,
@@ -190,6 +200,14 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
     ):
         device = context["image"].device
         b, v, _, h, w = context["image"].shape
+        # debug
+        # print("context[\"image\"].shape: {}".format(context["image"].shape))
+        # torch.Size([1, 2, 3, 176, 320])
+
+        b1, v1, _, h1, w1 = context["depth_image"].shape
+        # debug
+        # context["depth_image"].shape: torch.Size([1, 2, 1, 176, 320])
+        # print("context[\"depth_image\"].shape: {}".format(context["depth_image"].shape))
 
         if (
             self.cfg.costvolume_nearest_n_views is not None
@@ -207,8 +225,10 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
             cameras_dist_index = None
 
         # depth prediction
+        # MultiViewUniMatch类中的forward函数
         results_dict = self.depth_predictor(
             context["image"],
+            context["depth_image"],
             attn_splits_list=[2],
             min_depth=1. / context["far"],
             max_depth=1. / context["near"],
@@ -219,9 +239,22 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
 
         # list of [B, V, H, W], with all the intermediate depths
         depth_preds = results_dict['depth_preds']
+        # debug
+        # print(f"type(depth_preds): {type(depth_preds)})")
+        # for i in range(len(depth_preds)):
+        #     print(f"depth_preds[{i}].shape: {depth_preds[i].shape}")
+        # for i in range(len(context["depth_image"])):
+        #     print(f"context[\"depth_image\"][{i}].shape: {context['depth_image'][i].shape}")
+
+        # 使用真实的深度图
+        # use_true_depth = False
+        # if use_true_depth:
+        #     depth_preds[-1][:] = context["depth_image"].squeeze(2)
 
         # [B, V, H, W]
         depth = depth_preds[-1]
+        # debug type(depth): <class 'torch.Tensor'>  depth.shape: torch.Size([1, 2, 176, 320])
+        # print(f"-----------------depth real----------------\n: {depth_preds[-1]}")
 
         if self.cfg.train_depth_only:
             # convert format
@@ -279,7 +312,9 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
             features,
         ), dim=1)
 
+        # 把concat作为unet的输入
         out = self.gaussian_regressor(concat)
+        # debug concat.shape: torch.Size([2, 69, 176, 320])
 
         concat = [out,
                     rearrange(context["image"],
@@ -310,7 +345,7 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
             # [B, V, H*W, 1, 1]
             intermediate_depths = torch.cat(
                 depth_preds[:(num_depths - 1)], dim=0)
-            
+
             intermediate_depths = rearrange(
                 intermediate_depths, "b v h w -> b v (h w) () ()")
 
@@ -327,7 +362,7 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
         # [B, V, H*W, 1, 1]
         opacities = raw_gaussians[..., :1].sigmoid().unsqueeze(-1)
         raw_gaussians = raw_gaussians[..., 1:]
-        
+
         # Convert the features and depths into Gaussians.
         xy_ray, _ = sample_image_grid((h, w), device)
         xy_ray = rearrange(xy_ray, "h w xy -> (h w) () xy")
