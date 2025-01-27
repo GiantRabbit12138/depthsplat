@@ -170,3 +170,8 @@ pretrained/
 /wandb/
 
 /outputs/
+
+/.vscode/*
+!/.vscode/launch.json
+
+*.pth
