@@ -49,6 +49,12 @@ from src.visualization.vis_depth import viz_depth_tensor
 from PIL import Image
 from ..misc.stablize_camera import render_stabilization_path
 
+from ..evaluation.evaluation_index_generator import (EvaluationIndexGeneratorCfg,
+                                                     EvaluationIndexGenerator)
+
+from colorama import Fore
+def cyan(text: str) -> str:
+    return f"{Fore.CYAN}{text}{Fore.RESET}"
 
 @dataclass
 class OptimizerCfg:
@@ -107,6 +113,11 @@ class TrajectoryFn(Protocol):
 
 
 class ModelWrapper(LightningModule):
+    """
+    ModelWrapper 的主要职责是封装一个完整的机器学习模型
+    包括 编码器、解码器、损失函数、优化器配置 和 训练/测试配置
+    它将这些组件组合起来，便于训练和评估时的统一管理
+    """
     logger: Optional[WandbLogger]
     encoder: nn.Module
     encoder_visualizer: Optional[EncoderVisualizer]
@@ -153,10 +164,29 @@ class ModelWrapper(LightningModule):
             self.time_skip_steps_dict = {"encoder": 0, "decoder": 0}
 
     def training_step(self, batch, batch_idx):
+        # 对输入的batch使用encoder中的get_data_shim进行处理(图像的宽高须是偶数)
+        # 将输入的batch中的context和target进行中心裁切，并且重新调整相机的内参
         batch: BatchedExample = self.data_shim(batch)
         _, _, _, h, w = batch["target"]["image"].shape
+        # debug
+        # print("[ModelWrapper/training_step]batch[\"context\"][\"image\"].shape: {}".format(batch["context"]["image"].shape))
+        # torch.Size([1, 2, 3, 176, 320])
+        
+        # # 生成evaluation的索引
+        # EvaluationIndexGeneratorCfg.num_target_views = 1
+        # EvaluationIndexGeneratorCfg.max_distance = 100
+        # EvaluationIndexGeneratorCfg.min_distance = 0.1
+        # EvaluationIndexGeneratorCfg.max_overlap = 0.5
+        # EvaluationIndexGeneratorCfg.min_overlap = 0.1
+        # EvaluationIndexGeneratorCfg.output_path = Path("../../assets")
+        # EvaluationIndexGeneratorCfg.save_previews = True
+        # EvaluationIndexGeneratorCfg.seed = 1234
+    
+        # eval_index_generator = EvaluationIndexGenerator(EvaluationIndexGeneratorCfg)
+        # eval_index_generator.save_index()
 
         # Run the model.
+        # 这里应该调用了EncoderDepthSplat类中的forward方法
         gaussians = self.encoder(
             batch["context"], self.global_step, False, scene_names=batch["scene"]
         )
@@ -363,6 +393,8 @@ class ModelWrapper(LightningModule):
         return total_loss
 
     def test_step(self, batch, batch_idx):
+        # debug
+        print(cyan("[model_wrapper] test_step"))
         batch: BatchedExample = self.data_shim(batch)
         b, v, _, h, w = batch["target"]["image"].shape
         assert b == 1
@@ -1021,17 +1053,31 @@ class ModelWrapper(LightningModule):
 
         # Color-map the result.
         def depth_map(result):
-            near = result[result > 0][:16_000_000].quantile(0.01).log()
-            far = result.view(-1)[:16_000_000].quantile(0.99).log()
-            result = result.log()
-            result = 1 - (result - near) / (far - near)
-            return apply_color_map_to_image(result, "turbo")
+            """
+            用于对深度图（result）进行归一化处理并应用颜色映射，最终生成一个伪彩色图像
+            """
+            # debug type(result): <class 'torch.Tensor'>
+            # print(f"type(result): {type(result)}")
+            if (result > 0).sum() == 0:
+                # print(f"result: \n{result}")
+                raise ValueError("Input tensor has no valid depth values greater than 0.")
+                # result = 1
+                # print("------result is all zeros------")
+                # return apply_color_map_to_image(result, "turbo")
+            else:
+                near = result[result > 0][:16_000_000].quantile(0.01).log()
+                far = result.view(-1)[:16_000_000].quantile(0.99).log()
+                result = result.log()
+                result = 1 - (result - near) / (far - near)
+                return apply_color_map_to_image(result, "turbo")
 
         near = repeat(batch["context"]["near"][:, 0], "b -> b v", v=num_frames)
         far = repeat(batch["context"]["far"][:, 0], "b -> b v", v=num_frames)
         output_prob = self.decoder.forward(
             gaussians_prob, extrinsics, intrinsics, near, far, (h, w), "depth"
         )
+        # debug
+        # print(f"len(output_prob.depth): {len(output_prob.depth)}")
         images_prob = [
             vcat(rgb, depth)
             for rgb, depth in zip(output_prob.color[0], depth_map(output_prob.depth[0]))
