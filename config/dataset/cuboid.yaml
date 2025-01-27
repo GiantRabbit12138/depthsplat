@@ -2,7 +2,7 @@ defaults:
   - view_sampler: bounded
 
 name: cuboid
-roots: [datasets/cuboid_depthsplat_format_train_20241208]
+roots: [datasets/cuboid_depthsplat_format_train_with_depth_20241213]
 make_baseline_1: false
 augment: true
 image_shape: [180, 320]

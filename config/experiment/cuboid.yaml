@@ -6,8 +6,8 @@ defaults:
   - override /loss: [mse, lpips]
 
 wandb:
-  name: cuboid_depthsplat_format_train_20241208
-  tags: [cuboid_depthsplat_format_train_20241208, 180x320]
+  name: cuboid_depthsplat_format_train_with_depth_20241213
+  tags: [cuboid_depthsplat_format_train_with_depth_20241213, 180x320]
 
 data_loader:
   train:
@@ -34,9 +34,9 @@ loss:
     apply_after_step: 0
     weight: 0.05
 
-dataset: 
+dataset:
   image_shape: [180, 320]
-  roots: [datasets/cuboid_depthsplat_format_train_20241208]
+  roots: [datasets/cuboid_depthsplat_format_train_with_depth_20241213]
   near: 0.5
   far: 100.
   baseline_scale_bounds: false
