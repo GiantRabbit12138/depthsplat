@@ -57,6 +57,8 @@ def train(cfg_dict: DictConfig):
                 eval_path = "assets/dl3dv_start_0_distance_50_ctx_6v_tgt_8v.json"
             else:
                 raise ValueError("unsupported number of views for dl3dv")
+        elif "cuboid_depthsplat_format_train_with_depth_20241213" in dataset_dir:
+            eval_path = "assets/evaluation_index_cuboid.json"
         else:
             raise Exception("Fail to load eval index path")
         eval_cfg_dict["dataset"]["view_sampler"] = {
@@ -68,8 +70,17 @@ def train(cfg_dict: DictConfig):
     else:
         eval_cfg = None
 
+    # # debug
+    # cfg_dict_keys = cfg_dict.keys()
+    # print(f"cfg_dict_keys: {cfg_dict_keys}")
+    # print("cfg_dict[dataset]: {}".format(cfg_dict["dataset"]))
+
+    # 将配置文件cfg_dict转换为RootCfg类型的配置文件
     cfg = load_typed_root_config(cfg_dict)
     set_cfg(cfg_dict)
+
+    # debug
+    print(cyan(f"cfg.test: {cfg.test}"))
 
     # Set up the output directory.
     if cfg_dict.output_dir is None:
@@ -119,6 +130,9 @@ def train(cfg_dict: DictConfig):
     )
     for cb in callbacks:
         cb.CHECKPOINT_EQUALS_CHAR = '_'
+        
+    # debug
+    print(cyan(f"cfg.checkpointing.resume: {cfg.checkpointing.resume}"))
 
     # Prepare the checkpoint for loading.
     if cfg.checkpointing.resume:
@@ -126,13 +140,17 @@ def train(cfg_dict: DictConfig):
             checkpoint_path = None
         else:
             checkpoint_path = find_latest_ckpt(output_dir / 'checkpoints')
-            print(f'resume from {checkpoint_path}')
+            print(cyan(f'resume from {checkpoint_path}'))
     else:
         checkpoint_path = update_checkpoint_path(cfg.checkpointing.load, cfg.wandb)
+        
+    # debug
+    print(cyan(f'checkpoint_path: {checkpoint_path}'))
 
     # This allows the current step to be shared with the data loader processes.
     step_tracker = StepTracker()
 
+    # Trainer是pytorch-lightning的训练器
     trainer = Trainer(
         max_epochs=-1,
         accelerator="gpu",
@@ -150,8 +168,12 @@ def train(cfg_dict: DictConfig):
     )
     torch.manual_seed(cfg_dict.seed + trainer.global_rank)
 
+    # 根据配置文件中的encoder: depthsplat
+    # debug
+    # print(cyan(f"cfg.model.encoder: {cfg.model.encoder}"))
     encoder, encoder_visualizer = get_encoder(cfg.model.encoder)
 
+    # model_wrapper中包含模型的模块和配置
     model_wrapper = ModelWrapper(
         cfg.optimizer,
         cfg.test,
@@ -165,6 +187,8 @@ def train(cfg_dict: DictConfig):
             None if eval_cfg is None else eval_cfg.dataset
         ),
     )
+
+    # 数据模块 包含train val test
     data_module = DataModule(
         cfg.dataset,
         cfg.data_loader,
@@ -176,9 +200,14 @@ def train(cfg_dict: DictConfig):
         print("train:", len(data_module.train_dataloader()))
         print("val:", len(data_module.val_dataloader()))
         print("test:", len(data_module.test_dataloader()))
+    
+    # debug
+    if cfg.mode == "test":
+        print(cyan(f"Testing: {len(data_module.test_dataloader())}"))
 
     strict_load = not cfg.checkpointing.no_strict_load
 
+    # 如果当前mode为train模式
     if cfg.mode == "train":
         # only load monodepth
         if cfg.checkpointing.pretrained_monodepth is not None:
@@ -187,6 +216,7 @@ def train(cfg_dict: DictConfig):
             if 'state_dict' in pretrained_model:
                 pretrained_model = pretrained_model['state_dict']
 
+            # model_wrapper中的encoder 使用depth_predictor加载权重参数
             model_wrapper.encoder.depth_predictor.load_state_dict(pretrained_model, strict=strict_load)
             print(
                 cyan(
@@ -204,7 +234,7 @@ def train(cfg_dict: DictConfig):
                     f"Loaded pretrained mvdepth: {cfg.checkpointing.pretrained_mvdepth}"
                 )
             )
-        
+
         # load full model
         if cfg.checkpointing.pretrained_model is not None:
             pretrained_model = torch.load(cfg.checkpointing.pretrained_model, map_location='cpu')
@@ -229,7 +259,7 @@ def train(cfg_dict: DictConfig):
                     f"Loaded pretrained depth: {cfg.checkpointing.pretrained_depth}"
                 )
             )
-            
+
         trainer.fit(model_wrapper, datamodule=data_module, ckpt_path=checkpoint_path)
     else:
         # load full model
@@ -256,7 +286,7 @@ def train(cfg_dict: DictConfig):
                     f"Loaded pretrained depth: {cfg.checkpointing.pretrained_depth}"
                 )
             )
-            
+
         trainer.test(
             model_wrapper,
             datamodule=data_module,
