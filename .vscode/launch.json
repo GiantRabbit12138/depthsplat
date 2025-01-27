@@ -1,0 +1,53 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python调试: main.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,  // 设置为 false 以调试外部库代码
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0",  // 设置 CUDA 环境变量
+                "PYTHONPATH": "${workspaceFolder}"  // 将工作目录文件夹加入到 PYTHONPATH
+                // "PYTHONPATH": "${workspaceRoot}"
+              },
+            "args": [
+                // "+experiment=cuboid",
+                // "dataset.test_chunk_interval=1",
+                // "model.encoder.num_scales=1",
+                // "model.encoder.upsample_factor=4",
+                // "model.encoder.lowest_feature_resolution=4",
+                // "model.encoder.gaussian_regressor_channels=16",
+                // "model.encoder.color_large_unet=true",
+                // "model.encoder.feature_upsampler_channels=64",
+                // "mode=test",
+                // "dataset/view_sampler=evaluation",
+                // "test.compute_scores=true",
+                // "wandb.mode=disabled",
+                // "test.save_image=true",
+                // "test.save_gt_image=true",
+                // "output_dir=checkpoints/cuboid-image4_test_with_depth",
+                // "checkpointing.pretrained_model=checkpoints/cuboid-image4_test_with_depth/checkpoints/epoch_9999-step_10000.ckpt"
+                "+experiment=cuboid",
+                "data_loader.train.batch_size=4",
+                "dataset.test_chunk_interval=10",
+                "trainer.val_check_interval=0.5",
+                "trainer.max_steps=10000",
+                "model.encoder.upsample_factor=4",
+                "model.encoder.lowest_feature_resolution=4",
+                "model.encoder.gaussian_regressor_channels=16",
+                "model.encoder.feature_upsampler_channels=64",
+                "model.encoder.return_depth=true",
+                "wandb.project=depthsplat",
+                "output_dir=/root/autodl-tmp/cuboid-image4_no_depth_outputs_20241224",
+                "checkpointing.pretrained_monodepth=pretrained/depth_anything_v2_vits.pth",
+                "checkpointing.pretrained_mvdepth=pretrained/gmflow-scale1-things-e9887eda.pth",
+            ]
+        }
+    ]
+}
