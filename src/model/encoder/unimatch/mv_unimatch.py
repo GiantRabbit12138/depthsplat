@@ -9,10 +9,17 @@ from .mv_transformer import (
     batch_features_camera_parameters,
 )
 from .matching import warp_with_pose_depth_candidates
-from .utils import mv_feature_add_position
+from .utils import mv_feature_add_position, mv_feature_add_position_with_depth
 from .dpt_head import DPTHead
 from .ldm_unet.unet import UNetModel, AttentionBlock
 from einops import rearrange
+
+# unet3d
+from .unet3d.model import get_model, UNet3D, ResidualUNet3D
+
+from colorama import Fore
+def cyan(text: str) -> str:
+    return f"{Fore.CYAN}{text}{Fore.RESET}"
 
 
 class MultiViewUniMatch(nn.Module):
@@ -95,6 +102,7 @@ class MultiViewUniMatch(nn.Module):
         self.regressor = nn.ModuleList()
         self.regressor_residual = nn.ModuleList()
         self.depth_head = nn.ModuleList()
+        self.unet3d_regressor = nn.ModuleList()
 
         for i in range(self.num_scales):
             curr_depth_candidates = num_depth_candidates // (4**i)
@@ -119,12 +127,19 @@ class MultiViewUniMatch(nn.Module):
                 unet_channel_mult = unet_channel_mult + [1]
                 unet_attn_resolutions = [x * 2 for x in unet_attn_resolutions]
 
+            # debug in_channels: 768 channels: 128
+            # print(f"in_channels: {in_channels}")
+            # print(f"channels: {channels}")
+
             # unet
             modules = [
                 nn.Conv2d(in_channels, channels, 3, 1, 1),
                 nn.GroupNorm(8, channels),
                 nn.GELU(),
             ]
+
+            # unet3d
+            unet3d_modules = []
 
             modules.append(
                 UNetModel(
@@ -143,9 +158,36 @@ class MultiViewUniMatch(nn.Module):
                 )
             )
 
+            # unet3d
+            unet3d_modules.append(
+                UNet3D(
+                    in_channels=6,
+                    out_channels=channels,
+                    final_sigmoid=True,
+                    f_maps=64,
+                    layer_order='gcr',
+                    num_groups=8,
+                    num_levels=4,
+                    is_segmentation=False,
+                    conv_padding=1,
+                    conv_upscale=2,
+                    upsample='default',
+                    dropout_prob=0.1,
+                )
+            )
+
             modules.append(nn.Conv2d(channels, channels, 3, 1, 1))
 
             self.regressor.append(nn.Sequential(*modules))
+            # torch.save(self.regressor[0], "unet2d_regressor.pth")
+
+            #  unet3d
+            self.unet3d_regressor.append(nn.Sequential(*unet3d_modules))
+            # torch.save(self.unet3d_regressor[0], "unet3d_regressor.pth")
+
+            # debug
+            # print(cyan(f"self.regressor:\n {self.regressor}"))
+            print(cyan(f"self.unet3d_regressor:\n {self.unet3d_regressor}"))
 
             # regressor residual
             self.regressor_residual.append(nn.Conv2d(in_channels, channels, 1))
@@ -213,6 +255,9 @@ class MultiViewUniMatch(nn.Module):
 
         return (images - mean) / std
 
+    def expand_depth_images(self, depth_images):
+        return depth_images.expand(-1, -1, 3, -1, -1)
+
     def extract_feature(self, images):
         # images: [B, V, C, H, W]
         b, v = images.shape[:2]
@@ -227,6 +272,7 @@ class MultiViewUniMatch(nn.Module):
     def forward(
         self,
         images,
+        depth_images=None,  # 输入的深度图像
         attn_splits_list=None,
         intrinsics=None,
         min_depth=1.0 / 0.5,  # inverse depth range
@@ -245,18 +291,37 @@ class MultiViewUniMatch(nn.Module):
         images = self.normalize_images(images)
         b, v, _, ori_h, ori_w = images.shape
 
+        # depth_images: torch.Size([1, 2, 1, 176, 320])
+        # print(f"depth_images: {depth_images.shape}")
+
+        # 加入真实深度信息
+        enable_real_depth = True
+        if depth_images is not None and enable_real_depth:
+            # debug
+            # depth_images after normalize shape: torch.Size([1, 2, 3, 176, 320])
+            # print(f"depth_images after normalize shape: {depth_images.shape}")
+            depth_images = self.expand_depth_images(depth_images)
+
+        # debug
+        # images shape after normalize: torch.Size([1, 2, 3, 176, 320])
+        # print(f"images shape after normalize: {images.shape}")
+
         # update the num_views in unet attention, useful for random input views
         set_num_views(self.regressor, num_views=v)
 
         # NOTE: in this codebase, intrinsics are normalized by image width and height
         # in unimatch's codebase: https://github.com/autonomousvision/unimatch, no normalization
         intrinsics = intrinsics.clone()
+        # 将本来归一化的内参复原
         intrinsics[:, :, 0] *= ori_w
         intrinsics[:, :, 1] *= ori_h
 
         # max_depth, min_depth: [B, V] -> [BV]
         max_depth = max_depth.view(-1)
         min_depth = min_depth.view(-1)
+        # debug
+        # max_depth: tensor([2., 2.], device='cuda:0'), min_depth: tensor([0.0100, 0.0100], device='cuda:0')
+        # print(f"max_depth: {max_depth}, min_depth: {min_depth}")
 
         # list of features, resolution low to high
         # list of [BV, C, H, W]
@@ -266,21 +331,35 @@ class MultiViewUniMatch(nn.Module):
         results_dict.update({"features_cnn_all_scales": features_list_cnn_all_scales})
         results_dict.update({"features_cnn": features_list_cnn})
 
+        # debug
+        # self.num_scales: 1
+        # features_list_cnn_all_scales: 3
+        # len(features_list_cnn): 1
+        # len(features_list_cnn_all_scales)
+
         # mv transformer features
         # add position to features
         attn_splits = attn_splits_list[0]
+        # debug
+        # attn_splits_list: [2]
+        # attn_splits: 2
+        # self.feature_channels: 128
 
-        # [BV, C, H, W]
+        # [BV, C, H, W] 原来的代码
         features_cnn_pos = mv_feature_add_position(
             features_list_cnn[0], attn_splits, self.feature_channels
         )
 
         # list of [B, C, H, W]
+        # 沿着第 1 维（视图维度）拆分，结果是一个长度为 v 的张量列表，每个张量形状为 [B, C, H, W]
         features_list = list(
             torch.unbind(
                 rearrange(features_cnn_pos, "(b v) c h w -> b v c h w", b=b, v=v), dim=1
             )
         )
+        #debug len(features_list): 2
+        # print(f"features_list: {len(features_list)}")
+        # RGB features 输入到MV Transformers
         features_list_mv = self.transformer(
             features_list,
             attn_num_splits=attn_splits,
@@ -301,9 +380,16 @@ class MultiViewUniMatch(nn.Module):
         results_dict.update({"features_mv": features_list_mv})
 
         # mono feature
+        # 要将此处的输入rgb图片，换成真实的depth图片
         ori_h, ori_w = images.shape[-2:]
         resize_h, resize_w = ori_h // 14 * 14, ori_w // 14 * 14
-        concat = rearrange(images, "b v c h w -> (b v) c h w")
+        # 原先的代码: 提取RGB图片的mono feature
+        # concat = rearrange(images, "b v c h w -> (b v) c h w")
+        # 修改为: 提取真实的depth图片的mono feature
+        if depth_images is not None and enable_real_depth:
+            concat = rearrange(depth_images, "b v c h w -> (b v) c h w")
+        else:
+            concat = rearrange(images, "b v c h w -> (b v) c h w")
         concat = F.interpolate(
             concat, (resize_h, resize_w), mode="bilinear", align_corners=True
         )
@@ -315,6 +401,8 @@ class MultiViewUniMatch(nn.Module):
             "vitl": [4, 11, 17, 23],
         }
 
+        # get_intermediate_layers单目特征
+        # https://github.com/facebookresearch/dinov2/blob/e1277af2ba9496fbadf7aec6eba56e8d882d1e35/dinov2/models/vision_transformer.py#L298
         mono_intermediate_features = list(
             self.pretrained.get_intermediate_layers(
                 concat, intermediate_layer_idx[self.vit_type], return_class_token=False
@@ -341,6 +429,8 @@ class MultiViewUniMatch(nn.Module):
 
         # last mono feature
         mono_features = mono_intermediate_features[-1]
+        # debug mono features shape: torch.Size([2, 384, 22, 40])
+        # print(cyan(f"[mv unimatch] mono features shape: {mono_features.shape}"))
 
         if self.lowest_feature_resolution == 4:
             mono_features = F.interpolate(
@@ -369,6 +459,8 @@ class MultiViewUniMatch(nn.Module):
 
             # build cost volume
             features_mv = features_list_mv[scale_idx]  # [BV, C, H, W]
+            # features mv 3d
+            features_mv_3d = features_list_mv[scale_idx].unsqueeze(1)
 
             # list of [B, C, H, W]
             features_mv_curr = list(
@@ -416,7 +508,7 @@ class MultiViewUniMatch(nn.Module):
             num_depth_candidates = self.num_depth_candidates // (4**scale_idx)
 
             # generate depth candidates
-            if scale_idx == 0:
+            if scale_idx == 0:  # debug scale_idx=0
                 # min_depth, max_depth: [BV]
                 depth_interval = (max_depth - min_depth) / (
                     self.num_depth_candidates - 1
@@ -481,6 +573,10 @@ class MultiViewUniMatch(nn.Module):
                 1, tgt_features.size(1), 1, 1
             )  # [BV, V-1, 3, 3]
 
+            # debug
+            # print(f"depth_candidates_curr.shape: {depth_candidates_curr.shape}")
+            # depth_candidates_curr.shape: torch.Size([2, 128, 44, 80])
+
             warped_tgt_features = warp_with_pose_depth_candidates(
                 rearrange(tgt_features, "b v ... -> (b v) ..."),
                 rearrange(intrinsics_input, "b v ... -> (b v) ..."),
@@ -503,19 +599,78 @@ class MultiViewUniMatch(nn.Module):
                 (ref_features.unsqueeze(-3).unsqueeze(1) * warped_tgt_features).sum(2)
                 / (c**0.5)
             ).mean(1)
+            
+            # cost volume 3d
+            cost_volume_3d = cost_volume.unsqueeze(1)
 
             # regressor
             features_cnn = features_list_cnn[scale_idx]  # [BV, C, H, W]
+            # feature cnn 3d
+            features_cnn_3d = features_list_cnn[scale_idx].unsqueeze(1)
 
             features_mono = features_list_mono[scale_idx]  # [BV, C, H, W]
+            # feature momo 3d
+            # 使用卷积调整通道数
+            conv_mono_feature = nn.Conv2d(in_channels=384, out_channels=3 * 128, kernel_size=1).cuda()
+            # 经过卷积后，通道数变为 3 * 128 = 384，空间大小保持不变
+            features_mono_3d = conv_mono_feature(features_mono)
+            # 调整形状为 [2, 3, 128, 44, 80]
+            features_mono_3d = features_mono_3d.view(2, 3, 128, 44, 80)
+            
+            # debug
+            # cost_volume_3d.shape: torch.Size([2, 1, 128, 44, 80])
+            # features_cnn_3d.shape: torch.Size([2, 1, 128, 44, 80])
+            # features_mv_3d.shape: torch.Size([2, 1, 128, 44, 80])
+            # features_mono_3d.shape: torch.Size([2, 3, 128, 44, 80])
+            # print(cyan(f"[MV unimatch] cost_volume_3d.shape: {cost_volume_3d.shape}"))
+            # print(cyan(f"[MV unimatch] features_cnn_3d.shape: {features_cnn_3d.shape}"))
+            # print(cyan(f"[MV unimatch] features_mv_3d.shape: {features_mv_3d.shape}"))
+            # print(cyan(f"[MV unimatch] features_mono_3d.shape: {features_mono_3d.shape}"))
 
-            concat = torch.cat(
-                (cost_volume, features_cnn, features_mv, features_mono), dim=1
-            )
+            if enable_real_depth and depth_images is not None:
+                # 首次更改的代码，为了减少训练时的内存占用，所以只用到了cost_volume和features_mono
+                # concat = torch.cat(
+                #     (cost_volume, features_mono), dim=1
+                # )
+                concat = torch.cat(
+                    (cost_volume_3d, features_cnn_3d, features_mv_3d, features_mono_3d), dim=1
+                )
+            else:
+                # 作者原先代码
+                concat = torch.cat(
+                    (cost_volume, features_cnn, features_mv, features_mono), dim=1
+                )
 
-            out = self.regressor[scale_idx](concat) + self.regressor_residual[
-                scale_idx
-            ](concat)
+            # [MV unimatch] cost_volume.shape: torch.Size([2, 128, 44, 80])
+            # [MV unimatch] features_cnn.shape: torch.Size([2, 128, 44, 80])
+            # [MV unimatch] features_mono.shape: torch.Size([2, 384, 44, 80])
+            # [MV unimatch] features_mv.shape: torch.Size([2, 128, 44, 80])
+            # [MV unimatch] concat.shape: torch.Size([2, 768, 44, 80])
+
+            # debug
+            # print(cyan(f'[MV unimatch] concat.shape: {concat.shape}'))
+
+            # 原先作者使用2d unet的地方
+            if enable_real_depth and depth_images is not None:
+                # 将concat变为5维的tensor输入到unet3d中
+                # concat = rearrange(concat, '(b v) ... -> b v ...', b=b, v=v)
+                # debug torch.Size([1, 2, 768, 44, 80])
+                # print(cyan(f'[MV unimatch after rearrange] concat.shape: {concat.shape}'))
+                # concat = concat.unsqueeze(2).repeat(1, 1, num_depth_candidates, 1, 1)
+                # debug concat.shape: torch.Size([2, 768, 1, 44, 80])
+                # after repeat concat.shape: torch.Size([2, 768, 128, 44, 80])
+                # print(cyan(f'[MV unimatch after unsqueeze] concat.shape: {concat.shape}'))
+                out = self.unet3d_regressor[0](concat)
+                out = out.mean(dim=1)
+            else:
+                out = self.regressor[scale_idx](concat) + self.regressor_residual[
+                    scale_idx
+                ](concat)
+
+            # debug
+            # [unet3d] out.shape: torch.Size([2, 128, 128, 44, 80])
+            # [unet2d] out.shape: torch.Size([2, 128, 44, 80])
+            # print(cyan(f"[MV unimatch] out.shape: {out.shape}"))
 
             # depth pred
             match_prob = F.softmax(
@@ -526,6 +681,7 @@ class MultiViewUniMatch(nn.Module):
             if scale_idx == 0:
                 # [BV, D, H, W]
                 depth_candidates = depth_candidates.repeat(1, 1, h, w)
+            # 沿着第 1 维（深度维度 D）进行加权求和 保留求和维度，虽然深度维度被压缩，但输出张量仍然有 4 个维度
             depth = (match_prob * depth_candidates).sum(
                 dim=1, keepdim=True
             )  # [BV, 1, H, W]
@@ -566,6 +722,7 @@ class MultiViewUniMatch(nn.Module):
 
         # convert inverse depth to depth
         for i in range(len(depth_preds)):
+            # 移除第 1 维 取倒数
             depth_pred = 1.0 / depth_preds[i].squeeze(1)  # [BV, H, W]
             depth_preds[i] = rearrange(
                 depth_pred, "(b v) ... -> b v ...", b=b, v=v
