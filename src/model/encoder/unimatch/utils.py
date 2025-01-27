@@ -163,14 +163,54 @@ def feature_add_position(feature0, feature1, attn_splits, feature_channels):
 
 
 def mv_feature_add_position(features, attn_splits, feature_channels):
+    """
+    对输入的特征图 features 添加位置信息编码，从而为后续处理（如注意力机制）提供位置信息
+    具体实现方式是通过 PositionEmbeddingSine 模块生成位置编码，并将其加到输入特征上
+    """
+    # 实例化位置编码的对象pos_enc
     pos_enc = PositionEmbeddingSine(num_pos_feats=feature_channels // 2)
 
     assert features.dim() == 4  # [B*V, C, H, W]
 
+    # attn_splits = 2
     if attn_splits > 1:  # add position in splited window
+        # 特征分块 [B*K*K, C, H/K, W/K]
         features_splits = split_feature(features, num_splits=attn_splits)
+        # 生成位置编码
         position = pos_enc(features_splits)
+        # 将生成的位置信息加到特征块上
         features_splits = features_splits + position
+        # 特征合并 [B, C, H, W]
+        features = merge_splits(features_splits, num_splits=attn_splits)
+    else:
+        position = pos_enc(features)
+        features = features + position
+
+    return features
+
+def mv_feature_add_position_with_depth(features, depth_features, attn_splits, feature_channels):
+    """
+    对输入的特征图 features 添加位置信息编码，从而为后续处理（如注意力机制）提供位置信息
+    具体实现方式是通过 PositionEmbeddingSine 模块生成位置编码，并将其加到输入特征上
+    """
+    # 实例化位置编码的对象pos_enc
+    pos_enc = PositionEmbeddingSine(num_pos_feats=feature_channels // 2)
+
+    assert features.dim() == 4  # [B*V, C, H, W]
+
+    assert depth_features.dim() == 4 # [B*V, C, H, W]
+
+    # attn_splits = 2
+    if attn_splits > 1:  # add position in splited window
+        # 特征分块 [B*K*K, C, H/K, W/K]
+        features_splits = split_feature(features, num_splits=attn_splits)
+        depth_features_splits = split_feature(depth_features, num_splits=attn_splits)
+        # 生成位置编码
+        position = pos_enc(features_splits)
+        position_depth = pos_enc(depth_features_splits)
+        # 将生成的位置信息, depth信息加到特征块上
+        features_splits = features_splits + position + position_depth
+        # 特征合并 [B, C, H, W]
         features = merge_splits(features_splits, num_splits=attn_splits)
     else:
         position = pos_enc(features)
