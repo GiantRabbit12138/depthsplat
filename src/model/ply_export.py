@@ -32,6 +32,16 @@ def export_ply(
     opacities: Float[Tensor, " gaussian"],
     path: Path,
 ):
+    """
+    extrinsics: Float[Tensor, "4 4"]: 相机的外参
+    means: Float[Tensor, "gaussian 3"]: 均值(高斯椭球的位置xyz)
+    scales: Float[Tensor, "gaussian 3"]: 缩放
+    rotations: Float[Tensor, "gaussian 4"]: 旋转
+    harmonics: Float[Tensor, "gaussian 3 d_sh"]: 高斯椭球的球谐系数
+    opacities: Float[Tensor, " gaussian"]: 不透明度 
+    path: Path: ply文件的保存路径
+    """
+    
     # Shift the scene so that the median Gaussian is at the origin.
     means = means - means.median(dim=0).values
 
