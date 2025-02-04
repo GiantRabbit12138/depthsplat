@@ -7,8 +7,8 @@ defaults:
 
 wandb:
   project: depthsplat
-  entity: placeholder
-  name: placeholder
+  entity: giantrabbit076-ecnu
+  name: re10k_test_codebase
   mode: online
   id: null
 
