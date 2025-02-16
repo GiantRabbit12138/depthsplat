@@ -677,6 +677,8 @@ class MultiViewUniMatch(nn.Module):
                 self.depth_head[scale_idx](out), dim=1
             )  # [BV, D, H, W]
             match_probs.append(match_prob)
+            # debug match_prob.shape: torch.Size([2, 128, 44, 80])
+            # print(cyan(f"[MV unimatch] match_prob.shape: {match_prob.shape}"))
 
             if scale_idx == 0:
                 # [BV, D, H, W]
@@ -727,6 +729,8 @@ class MultiViewUniMatch(nn.Module):
             depth_preds[i] = rearrange(
                 depth_pred, "(b v) ... -> b v ...", b=b, v=v
             )  # [B, V, H, W]
+            # debug depth_preds[1].shape: torch.Size([1, 2, 176, 320])
+            # print(cyan(f"[MV unimatch] depth_preds[{i}].shape: {depth_preds[i].shape}"))
 
         results_dict.update({"depth_preds": depth_preds})
         results_dict.update({"match_probs": match_probs})

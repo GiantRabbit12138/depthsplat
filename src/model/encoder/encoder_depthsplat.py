@@ -159,6 +159,8 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
 
         # predict opacity
         num_gaussian_parameters += 1
+        # debug num_gaussian_parameters: 85
+        print(cyan(f"[encoder_depthsplat] num_gaussian_parameters: {num_gaussian_parameters}"))
 
         # concat(img, features, unet_out, match_prob)
         in_channels = 3 + feature_upsampler_channels + channels + 1
@@ -295,6 +297,8 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
                                             results_dict["features_mv"],
                                             results_dict["features_mono"],
                                             )
+        # debug features.shape: torch.Size([2, 64, 176, 320])
+        # print(cyan(f"[encoder_depthsplat] features.shape: {features.shape}"))
 
         # match prob from softmax
         # [BV, D, H, W] in feature resolution
@@ -303,6 +307,8 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
             0]  # [BV, 1, H, W]
         match_prob = F.interpolate(
             match_prob, size=depth.shape[-2:], mode='nearest')
+        # debug match_prob.shape: torch.Size([2, 1, 176, 320])
+        # print(cyan(f"[encoder_depthsplat] match_prob.shape: {match_prob.shape}"))
 
         # unet input
         concat = torch.cat((
@@ -311,12 +317,13 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
             match_prob,
             features,
         ), dim=1)
+        # debug concat.shape: torch.Size([2, 69, 176, 320])
+        # print(cyan(f"[encoder_depthsplat] concat.shape: {concat.shape}"))
 
         # 把concat作为unet的输入
         out = self.gaussian_regressor(concat)
-        # debug concat.shape: torch.Size([2, 69, 176, 320])
         # debug out.shape: torch.Size([2, 16, 176, 320])
-        # print(f"[encoder_depthsplat] out.shape: {out.shape}")
+        # print(cyan(f"[encoder_depthsplat] out.shape: {out.shape}"))
 
         concat = [out,
                     rearrange(context["image"],
@@ -330,25 +337,33 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
 
         gaussians = self.gaussian_head(out)  # [BV, C, H, W]
         # debug gaussians.shape: torch.Size([2, 85, 176, 320])
-        # print(f"[encoder_depthsplat] gaussians.shape: {gaussians.shape}")
+        # print(cyan(f"[encoder_depthsplat] gaussians.shape: {gaussians.shape}"))
 
         gaussians = rearrange(gaussians, "(b v) c h w -> b v c h w", b=b, v=v)
         # debug [encoder_depthsplat] gaussians_1.shape: torch.Size([1, 2, 85, 176, 320])
-        # print(f"[encoder_depthsplat] gaussians_1.shape: {gaussians.shape}")
+        # print(cyan(f"[encoder_depthsplat] gaussians_1.shape: {gaussians.shape}"))
 
         depths = rearrange(depth, "b v h w -> b v (h w) () ()")
+        # debug depths.shape: torch.Size([1, 2, 56320, 1, 1])
+        # print(cyan(f"[encoder_depthsplat] depths.shape: {depths.shape}"))
 
         # [B, V, H*W, 1, 1]
         densities = rearrange(
             match_prob, "(b v) c h w -> b v (c h w) () ()", b=b, v=v)
+        # debug densities.shape: torch.Size([1, 2, 56320, 1, 1])
+        # print(cyan(f"[encoder_depthsplat] densities.shape: {densities.shape}"))
         # [B, V, H*W, 84]
         raw_gaussians = rearrange(
             gaussians, "b v c h w -> b v (h w) c")
+        # debug raw_gaussians.shape: torch.Size([1, 2, 56320, 85])
+        # print(cyan(f"[encoder_depthsplat] raw_gaussians.shape: {raw_gaussians.shape}"))
 
         if self.cfg.supervise_intermediate_depth and len(depth_preds) > 1:
 
             # supervise all the intermediate depth predictions
             num_depths = len(depth_preds)
+            # debug num_depths: 2
+            # print(cyan(f"[encoder_depthsplat] num_depths: {num_depths}"))
 
             # [B, V, H*W, 1, 1]
             intermediate_depths = torch.cat(
@@ -366,7 +381,7 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
                 [raw_gaussians] * num_depths, dim=0)
 
             b *= num_depths
-            
+
         # debug raw_gaussians.shape: torch.Size([2, 2, 56320, 85])
         # print(f"[encoder_depthsplat] raw_gaussians.shape: {raw_gaussians.shape}")
 
