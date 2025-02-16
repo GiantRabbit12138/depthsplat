@@ -342,6 +342,7 @@ class DatasetCuboid(IterableDataset):
 
                 if self.stage == "train" and self.cfg.augment:
                     example = apply_augmentation_shim(example)
+                # 这里输入的image_shape是相应数据集中的参数，例如[180,320]
                 yield apply_crop_shim(example, tuple(self.cfg.image_shape))
 
     def convert_poses(
