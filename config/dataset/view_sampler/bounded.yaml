@@ -4,7 +4,7 @@ num_target_views: 1
 num_context_views: 2
 
 min_distance_between_context_views: 2
-max_distance_between_context_views: 6
+max_distance_between_context_views: 6 # 该值默认值为6，所以之前test时，target图片的索引一直是0-6
 min_distance_to_context_views: 0
 
 warm_up_steps: 0
